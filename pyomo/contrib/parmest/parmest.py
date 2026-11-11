@@ -405,12 +405,11 @@ def validate_experiment_outputs(output_vars):
 
     # group indices by parent component
     for comp in output_vars:
-        index = comp.index()
-
         # check if the output variable is a scalar (e.g., m.y1, m.y2)
-        if index is None:
-            pass
-        else:
+        index = None
+        if comp.is_indexed():
+            index = comp.index()
+
             # format the index of output variables
             # (e.g., m.CA[t], m.CB[t], m.C[t, "A"], m.C[t, "B"]) as a tuple
             index_tuple = _format_outputs_index_as_tuple(index)
@@ -419,6 +418,8 @@ def validate_experiment_outputs(output_vars):
             assert isinstance(
                 index_tuple[0], (int, float)
             ), "The first index of experiment outputs must be the data point"
+        else:
+            pass
 
         parent = comp.parent_component().name
         grouped_indices[parent].append(index)
@@ -602,7 +603,11 @@ def _compute_jacobian(experiment, theta_vals, step, solver, tee, solver_options)
         relative_perturbation = step * orig_value
 
         # Forward perturbation
-        param.fix(orig_value + relative_perturbation)
+        if param.ub and (orig_value + relative_perturbation) > param.ub:
+            param.fix(param.ub)
+            print(f'Fixing {param.name}: {param.ub}')
+        else:
+            param.fix(orig_value + relative_perturbation)
 
         # solve the model
         results = solver.solve(model, tee=tee)
@@ -612,7 +617,11 @@ def _compute_jacobian(experiment, theta_vals, step, solver, tee, solver_options)
         y_hat_plus = [pyo.value(y_hat) for y_hat, y in model.experiment_outputs.items()]
 
         # Backward perturbation
-        param.fix(orig_value - relative_perturbation)
+        if param.lb and (orig_value - relative_perturbation) < param.lb:
+            param.fix(param.lb)
+            print(f'Fixing {param.name}: {param.lb}')
+        else:
+            param.fix(orig_value - relative_perturbation)
 
         # re-solve the model
         results = solver.solve(model, tee=tee)
@@ -1563,7 +1572,7 @@ class Estimator:
         if solver == "k_aug":
             raise RuntimeError("k_aug no longer supported.")
         if solver == "ef_ipopt":
-            sol = SolverFactory('ipopt')
+            sol = SolverFactory('ipopt_v2')
         else:
             raise RuntimeError("Unknown solver in Q_Opt=" + solver)
         # Currently, parmest is only tested with ipopt via ef_ipopt
@@ -2010,7 +2019,7 @@ class Estimator:
 
         return self._Q_opt(solver=solver, return_values=return_values, bootlist=None)
 
-    def cov_est(self, method="finite_difference", solver="ipopt", step=1e-3):
+    def cov_est(self, method="finite_difference", solver="ipopt_v2", step=1e-3):
         """
         Covariance matrix calculation using all scenarios in the data
 
@@ -2937,7 +2946,7 @@ class _DeprecatedEstimator:
         outer_cb_data["cb_data"] = self.callback_data  # None is OK
         outer_cb_data["theta_names"] = self.theta_names
 
-        options = {"solver": "ipopt"}
+        options = {"solver": "ipopt_v2"}
         scenario_creator_options = {"cb_data": outer_cb_data}
         if use_mpisppy:
             ef = sputils.create_EF(
@@ -2962,7 +2971,7 @@ class _DeprecatedEstimator:
             if not calc_cov:
                 # Do not calculate the reduced hessian
 
-                solver = SolverFactory('ipopt')
+                solver = SolverFactory('ipopt_v2')
                 if self.solver_options is not None:
                     for key in self.solver_options:
                         solver.options[key] = self.solver_options[key]
@@ -3102,7 +3111,7 @@ class _DeprecatedEstimator:
             pyo.TerminationCondition.infeasible is the worst.
         """
 
-        optimizer = pyo.SolverFactory('ipopt')
+        optimizer = pyo.SolverFactory('ipopt_v2')
 
         if len(thetavals) > 0:
             dummy_cb = {
