@@ -405,6 +405,7 @@ def validate_experiment_outputs(output_vars):
 
     # group indices by parent component
     for comp in output_vars:
+
         # check if the output variable is a scalar (e.g., m.y1, m.y2)
         index = None
         if comp.is_indexed():
